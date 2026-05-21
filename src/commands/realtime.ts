@@ -1,23 +1,28 @@
 import { Context } from 'telegraf';
 import createDebug from 'debug';
 import { getLastSensorData, client, MQTT_TOPIC_SENSOR } from '../services/mqtt';
+import {
+  createRandomSensorPayload,
+  formatSensorMessage,
+} from '../services/sensor';
 
 const debug = createDebug('bot:realtime_command');
 
-const INTERVAL_MS = Number(1000);
-const STALE_TIMEOUT_MS = Number(INTERVAL_MS * 2);
+const parsePositiveMs = (value: string | undefined, fallback: number) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+};
+
+const INTERVAL_MS = parsePositiveMs(process.env.REALTIME_INTERVAL_MS, 1000);
+const STALE_TIMEOUT_MS = parsePositiveMs(
+  process.env.REALTIME_STALE_MS,
+  INTERVAL_MS * 2,
+);
 
 const realtimeIntervals = new Map<number, NodeJS.Timeout>();
 const staleChats = new Set<number>();
 
 let testPublishTimer: NodeJS.Timeout | null = null;
-
-const formatDate = (timestamp: number) => {
-  return new Date(timestamp).toLocaleString('id-ID', {
-    timeZone: 'Asia/Jakarta',
-    hour12: false,
-  });
-};
 
 export const realtimeOn = () => async (ctx: Context) => {
   const chatId = ctx.chat?.id;
@@ -33,9 +38,13 @@ export const realtimeOn = () => async (ctx: Context) => {
   // ==========================
   if (isTest) {
     if (!client) {
-      await ctx.reply('⚠️ MQTT client belum siap. Pastikan initMqtt() sudah dipanggil.');
+      await ctx.reply(
+        '⚠️ MQTT client belum siap. Pastikan initMqtt() sudah dipanggil.',
+      );
     } else if (testPublishTimer) {
-      await ctx.reply('ℹ️ Mode TEST sudah aktif. Bot sedang mengirim data random ke MQTT.');
+      await ctx.reply(
+        'ℹ️ Mode TEST sudah aktif. Bot sedang mengirim data random ke MQTT.',
+      );
     } else {
       await ctx.reply(
         '✅ Mode TEST DIaktifkan.\n' +
@@ -47,18 +56,7 @@ export const realtimeOn = () => async (ctx: Context) => {
       testPublishTimer = setInterval(() => {
         if (!client) return;
 
-        const mq2 = 300 + Math.floor(Math.random() * 900);
-        const flame = 1000 + Math.floor(Math.random() * 2000);
-
-        const gasDanger = mq2 > 800;
-        const fireDetected = flame < 2000;
-
-        const payload = JSON.stringify({
-          mq2,
-          flame,
-          gasDanger,
-          fireDetected,
-        });
+        const payload = JSON.stringify(createRandomSensorPayload());
 
         client.publish(MQTT_TOPIC_SENSOR, payload, { qos: 0, retain: false });
         debug('📤 TEST SENSOR payload: %s', payload);
@@ -80,13 +78,13 @@ export const realtimeOn = () => async (ctx: Context) => {
 
   if (!data) {
     await ctx.reply(
-      '✅ Realtime monitoring DIaktifkan.\n' +
+      '✅ Realtime monitoring Diaktifkan.\n' +
         '⚠️ Belum ada data sensor yang diterima dari MQTT.\n\n' +
         'Bot akan mulai mengirim status ketika sensor mulai mengirim data ke broker.',
     );
   } else {
     await ctx.reply(
-      '✅ Realtime monitoring DIaktifkan.\n' +
+      '✅ Realtime monitoring Diaktifkan.\n' +
         `Interval: setiap ${INTERVAL_MS / 1000} detik.\n` +
         `Jika data sensor berhenti, bot akan *pause* kirim status dan otomatis lanjut lagi saat data kembali.`,
       { parse_mode: 'Markdown' },
@@ -103,7 +101,6 @@ export const realtimeOn = () => async (ctx: Context) => {
       debug('No sensor data yet, skip send for chat: %s', chatId);
       return;
     }
-
 
     const now = Date.now();
     const age = now - latest.timestamp;
@@ -150,18 +147,10 @@ export const realtimeOn = () => async (ctx: Context) => {
       }
     }
 
-    const gasStatus = latest.gasDanger ? '🚨 *BAHAYA*' : '✅ Aman';
-    const fireStatus = latest.fireDetected
-      ? '🔥 *Api terdeteksi*'
-      : '✅ Tidak terdeteksi';
-
-    const message =
-      '📡 *Realtime Status Sensor*\n\n' +
-      `MQ2: *${latest.mq2}* (nilai ADC)\n` +
-      `Flame: *${latest.flame}* (nilai ADC)\n\n` +
-      `Gas: ${gasStatus}\n` +
-      `Api: ${fireStatus}\n\n` +
-      `Diterima pada: _${formatDate(latest.timestamp)}_`;
+    const message = formatSensorMessage(
+      latest,
+      '📡 *Realtime Status FIRESENTRY*',
+    );
 
     try {
       await ctx.telegram.sendMessage(chatId, message, {
@@ -190,12 +179,13 @@ export const realtimeOff = () => async (ctx: Context) => {
   }
 
   // Hentikan juga TEST publisher kalau ada
+  const hadTestPublishTimer = Boolean(testPublishTimer);
   if (testPublishTimer) {
     clearInterval(testPublishTimer);
     testPublishTimer = null;
   }
 
-  if (!timer && !testPublishTimer) {
+  if (!timer && !hadTestPublishTimer) {
     await ctx.reply('ℹ️ Realtime monitoring belum aktif untuk chat ini.');
     return;
   }

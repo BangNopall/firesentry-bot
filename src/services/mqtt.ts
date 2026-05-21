@@ -1,21 +1,16 @@
 // src/services/mqtt.ts
 import mqtt, { MqttClient } from 'mqtt';
 import createDebug from 'debug';
+import { parseSensorPayload } from './sensor';
+import type { SensorData } from './sensor';
 
 const debug = createDebug('bot:mqtt');
-
-export interface SensorData {
-  mq2: number;
-  flame: number;
-  gasDanger: boolean;
-  fireDetected: boolean;
-  timestamp: number;
-}
 
 const MQTT_URL = process.env.MQTT_URL || '';
 const MQTT_USERNAME = process.env.MQTT_USERNAME || '';
 const MQTT_PASSWORD = process.env.MQTT_PASSWORD || '';
-export const MQTT_TOPIC_SENSOR = process.env.MQTT_TOPIC_SENSOR || '/firegasmnmkel6/monitoring/sensor';
+export const MQTT_TOPIC_SENSOR =
+  process.env.MQTT_TOPIC_SENSOR || '/firesentry/data';
 
 export let client: MqttClient | null = null;
 let lastSensorData: SensorData | null = null;
@@ -53,21 +48,15 @@ export const initMqtt = () => {
   client.on('message', (topic, payload) => {
     if (topic !== MQTT_TOPIC_SENSOR) return;
 
-    try {
-      const json = JSON.parse(payload.toString()) as Omit<
-        SensorData,
-        'timestamp'
-      >;
+    const sensorData = parseSensorPayload(payload.toString());
 
-      lastSensorData = {
-        ...json,
-        timestamp: Date.now(),
-      };
-
-      debug('New sensor data: %O', lastSensorData);
-    } catch (err) {
+    if (!sensorData) {
       debug('Failed to parse sensor payload: %s', payload.toString());
+      return;
     }
+
+    lastSensorData = sensorData;
+    debug('New sensor data: %O', lastSensorData);
   });
 };
 

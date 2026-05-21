@@ -29,5 +29,4 @@ const startbot = async (bot: Telegraf<Context<Update>>) => {
   process.once('SIGTERM', () => bot.stop('SIGTERM'));
 };
 
-
 startbot(bot);

@@ -11,7 +11,7 @@ const start = () => async (ctx: Context) => {
   const message =
     `Halo ${firstName}!\n\n` +
     `${name}\n${description}\n\n` +
-    'Bot ini digunakan untuk memantau sensor gas dan api berbasis ESP32 dan MQTT.\n\n' +
+    'Bot ini digunakan untuk memantau sensor gas, suhu, dan api berbasis ESP32 dan MQTT.\n\n' +
     'Perintah yang tersedia:\n' +
     '/status - Lihat data sensor terbaru\n' +
     '/realtime_on - Nyalakan update realtime\n' +
