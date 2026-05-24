@@ -1,71 +1,53 @@
-# FIRESENTRY Monitor Bot (ESP32 + MQTT + Telegram Bot)
+# FIRESENTRY Monitor Bot
 
-FIRESENTRY Monitor Bot adalah sistem monitoring **sensor Gas (MQ2)**, **sensor suhu DS18B20**, dan **sensor api IR Flame** berbasis **ESP32**, **MQTT HiveMQ Cloud**, dan **Telegram Bot (Telegraf.js)**.
-Proyek ini dibuat untuk kebutuhan **proyek akhir mata kuliah Mikroprosesor & Mikrokontroler**.
+> Telegram Bot untuk monitoring sensor Gas (MQ-2), Suhu (DS18B20), dan Api (IR Flame) berbasis ESP32, MQTT HiveMQ Cloud, dan Telegraf.js.
 
-Bot dapat:
-
-- Menampilkan status sensor terkini
-- Mengirim data secara realtime ke Telegram
-- Menjalankan mode TEST (simulasi data random)
-- Pause otomatis bila sensor berhenti mengirim data
-- Resume otomatis bila sensor kembali aktif
+Proyek ini dibuat untuk tugas akhir mata kuliah **Mikroprosesor & Mikrokontroler** oleh **Kelompok 6 (MNMKEL6)**.
 
 ---
 
 ## 🚀 Fitur Utama
 
-### ✔ `/start`
+| Command | Fungsi |
+| --- | --- |
+| `/start` atau `/help` | Menampilkan informasi bot dan daftar perintah |
+| `/status` | Menampilkan data sensor terbaru dari MQTT |
+| `/realtime_on` | Mengaktifkan monitoring realtime untuk kondisi ALERT & BAHAYA |
+| `/realtime_on test` | Mengaktifkan realtime + simulasi data sensor random ke MQTT |
+| `/realtime_off` | Mematikan realtime monitoring dan mode test |
 
-Menampilkan informasi dasar bot dan daftar perintah.
+### 📡 Realtime Monitoring Cerdas
 
-### ✔ `/status`
+- Mengirim notifikasi **hanya** saat status `ALERT` atau `BAHAYA`
+- Cek data sensor setiap `REALTIME_INTERVAL_MS` (default: setiap 1 detik)
+- **Pause otomatis** bila data sensor berhenti lebih dari `REALTIME_STALE_MS` (default: 45 detik)
+- **Resume otomatis** bila data sensor kembali aktif — tanpa perlu mengetik `/realtime_on` ulang
 
-Menampilkan data sensor terbaru dari MQTT:
+### 🧪 Mode TEST (tanpa ESP32)
 
-- Nilai MQ2 (gas)
-- Suhu DS18B20
-- Status flame sensor
-- Status sistem: AMAN, ALERT, atau BAHAYA
-- Pemicu kondisi status
-- Timestamp saat data diterima
-
-### ✔ `/realtime_on`
-
-Mengaktifkan mode pengiriman status realtime setiap detik:
-
-- Pause otomatis bila data sensor berhenti
-- Resume otomatis bila data kembali aktif
-- Tidak perlu menulis `/realtime_on` ulang
-
-### ✔ `/realtime_on test`
-
-Mode khusus untuk simulasi:
-
-- Bot mengirim data sensor random ke MQTT setiap 5 detik
-- Cocok untuk uji sistem tanpa ESP32
-
-### ✔ `/realtime_off`
-
-Mematikan realtime & mematikan mode test jika sedang aktif.
+- Bot mempublikasikan data sensor **random** ke MQTT setiap **5 detik**
+- Data diterima kembali oleh bot via subscribe, sehingga realtime berjalan normal
+- Cocok untuk menguji sistem saat ESP32 tidak tersedia
 
 ---
 
 ## 📡 Arsitektur Sistem
 
 ```
-ESP32 (MQ2 + DS18B20 + Flame)
+ESP32 (MQ-2 + DS18B20 + Flame Sensor)
         │
-   Publikasi MQTT (JSON)
+   Publish JSON via MQTT
         │
   HiveMQ Cloud Broker
         │
-Node.js Bot Subscriber
+  Node.js + TypeScript (Bot Subscriber)
         │
-   Telegram Bot (Telegraf)
+   Telegram Bot (Telegraf.js)
 ```
 
-Format JSON dari ESP32:
+### Format Payload MQTT
+
+Bot menerima payload JSON dari topic `MQTT_TOPIC_SENSOR` (default: `/firesentry/data`):
 
 ```json
 {
@@ -81,11 +63,19 @@ Format JSON dari ESP32:
 }
 ```
 
-Nilai `state` mengikuti state machine di ESP32:
+| Field | Tipe | Keterangan |
+| --- | --- | --- |
+| `gas` | `number` | Nilai ADC MQ-2 dari ESP32 |
+| `temperature` | `number \| null` | Suhu DS18B20 dalam Celsius; `null` jika sensor error |
+| `flameDetected` | `boolean` | `true` jika flame sensor mendeteksi api |
+| `tempError` | `boolean` | `true` jika DS18B20 gagal dibaca |
+| `gasAlert` | `boolean` | `true` jika gas melewati batas alert |
+| `gasDanger` | `boolean` | `true` jika gas melewati batas bahaya |
+| `tempAlert` | `boolean` | `true` jika suhu melewati batas alert |
+| `tempDanger` | `boolean` | `true` jika suhu melewati batas bahaya |
+| `state` | `"AMAN" \| "ALERT" \| "BAHAYA"` | State sistem dari ESP32 |
 
-- `AMAN` bila semua sensor dalam batas aman
-- `ALERT` bila gas atau suhu melewati batas alert
-- `BAHAYA` bila api terdeteksi, gas melewati batas bahaya, atau suhu melewati batas bahaya
+Payload yang tidak valid akan diabaikan dan dicatat di debug log.
 
 ---
 
@@ -93,28 +83,35 @@ Nilai `state` mengikuti state machine di ESP32:
 
 ```
 .
-├── .env
-├── README.md
+├── .env                        # Environment variable (tidak di-commit)
+├── .env-sample                 # Contoh konfigurasi .env
 ├── package.json
+├── tsconfig.json
+├── tests/                      # Unit test
 └── src/
-    ├── index.ts               # Entry development (polling)
+    ├── index.ts                # Entry point: inisialisasi bot & MQTT
     ├── commands/
-    │   ├── start.ts           # /start
-    │   ├── status.ts          # /status
-    │   └── realtime.ts        # /realtime_on, /realtime_off, test mode
-    ├── services/
-    │   ├── mqtt.ts            # Koneksi MQTT & data sensor terakhir
-    │   └── sensor.ts          # Validasi dan format data FIRESENTRY
+    │   ├── index.ts            # Re-export semua command
+    │   ├── start.ts            # /start, /help
+    │   ├── status.ts           # /status
+    │   └── realtime.ts         # /realtime_on, /realtime_off, mode test
+    └── services/
+        ├── mqtt.ts             # Koneksi MQTT, subscribe, simpan data terakhir
+        └── sensor.ts           # Type, validasi payload, formatter pesan, dummy data
 ```
 
 ---
 
 ## ⚙️ Setup Environment
 
-Buat file `.env` seperti berikut:
+Salin `.env-sample` menjadi `.env` dan isi nilainya:
+
+```bash
+cp .env-sample .env
+```
 
 ```env
-BOT_TOKEN="isi_token_bot"
+BOT_TOKEN=""
 
 MQTT_URL="mqtts://xxxx.s1.eu.hivemq.cloud:8883"
 MQTT_USERNAME="username"
@@ -122,8 +119,18 @@ MQTT_PASSWORD="password"
 MQTT_TOPIC_SENSOR="/firesentry/data"
 
 REALTIME_INTERVAL_MS=1000
-REALTIME_STALE_MS=2000
+REALTIME_STALE_MS=45000
 ```
+
+| Variable | Keterangan |
+| --- | --- |
+| `BOT_TOKEN` | Token Telegram Bot dari @BotFather |
+| `MQTT_URL` | URL broker MQTT (HiveMQ Cloud, format `mqtts://`) |
+| `MQTT_USERNAME` | Username MQTT |
+| `MQTT_PASSWORD` | Password MQTT |
+| `MQTT_TOPIC_SENSOR` | Topic MQTT yang disubscribe bot (default: `/firesentry/data`) |
+| `REALTIME_INTERVAL_MS` | Interval cek data realtime dalam milidetik (default: `1000`) |
+| `REALTIME_STALE_MS` | Batas waktu data dianggap stale/berhenti dalam milidetik (default: `45000`). Gunakan nilai lebih besar dari interval publish ESP32. |
 
 ---
 
@@ -133,61 +140,67 @@ REALTIME_STALE_MS=2000
 npm install
 ```
 
-atau
-
-```bash
-yarn
-```
-
 ---
 
-## 🛠 Menjalankan Bot (Development)
-
-Mode polling:
+## 🛠 Menjalankan (Development)
 
 ```bash
 npm run dev
 ```
 
 Bot akan:
-
-- Connect ke MQTT
+- Terhubung ke broker MQTT
 - Menjalankan polling update Telegram
-- Mencetak log debug ke terminal
+- Mencetak debug log ke terminal (prefix `bot:*`)
 
----
-
-## 🚀 Menjalankan Bot di PM2 (VPS)
-
-Jalankan:
+Untuk Windows:
 
 ```bash
-pm2 start npm --name firegas-bot -- run start
-```
-
-Cek log:
-
-```bash
-pm2 logs firegas-bot
-```
-
-Restart:
-
-```bash
-pm2 restart firegas-bot
-```
-
-Stop:
-
-```bash
-pm2 stop firegas-bot
+npm run devWindows
 ```
 
 ---
 
-## 🏗 Script `start` untuk PM2
+## 🧪 Verifikasi & Quality Check
 
-Di `package.json` sudah disiapkan:
+```bash
+# Unit test (validasi payload & formatter)
+npm test
+
+# Type check tanpa build
+npm run lint
+
+# Format kode
+npm run prettier
+```
+
+---
+
+## 🏗️ Build & Production
+
+Build ke single file (output di folder `public/`):
+
+```bash
+npm run build
+```
+
+### Menjalankan dengan PM2 (VPS)
+
+```bash
+# Start
+pm2 start npm --name firesentry-bot -- run start
+
+# Lihat log
+pm2 logs firesentry-bot
+
+# Restart
+pm2 restart firesentry-bot
+
+# Stop
+pm2 stop firesentry-bot
+```
+
+Script `start` di `package.json`:
 
 ```json
 "start": "NODE_ENV=production DEBUG=bot* dotenv -- node -r ts-node/register src/index.ts"
@@ -195,75 +208,28 @@ Di `package.json` sudah disiapkan:
 
 ---
 
-## 🧪 Mode TEST (simulasi data sensor)
+## 🔧 Teknologi
 
-Jalankan:
-
-```
-/realtime_on test
-```
-
-Fitur:
-
-- Bot mengirim data random ke MQTT setiap 5 detik
-- Data otomatis diterima bot melalui subscribe
-- Cocok untuk uji sistem tanpa ESP32
-
-Contoh data random:
-
-```json
-{
-  "gas": 4095,
-  "temperature": 63.2,
-  "flameDetected": false,
-  "tempError": false,
-  "gasAlert": true,
-  "gasDanger": true,
-  "tempAlert": true,
-  "tempDanger": true,
-  "state": "BAHAYA"
-}
-```
-
-Stop test:
-
-```
-/realtime_off
-```
-
----
-
-## 📡 Realtime dengan Pause & Resume Cerdas
-
-Bot dilengkapi fitur cerdas:
-
-- STOP mengirim realtime bila data MQTT **tidak berubah**
-- KIRIM pesan “Pause” sekali saja
-- OTOMATIS resume jika data sensor kembali berubah
-- Realtime tetap aktif tanpa user mengetik `/realtime_on` lagi
-
----
-
-## 🔧 Teknologi yang Digunakan
-
-| Komponen      | Teknologi                                       |
-| ------------- | ----------------------------------------------- |
-| IoT           | ESP32 + MQ2 Gas Sensor + DS18B20 + Flame Sensor |
-| Messaging     | Telegram Bot API (Telegraf.js)                  |
-| Backend       | Node.js + TypeScript                            |
-| IoT Messaging | MQTT.js + HiveMQ Cloud                          |
-| Deployment    | PM2 / Vercel                                    |
-| Logging       | debug module                                    |
+| Komponen | Teknologi |
+| --- | --- |
+| IoT | ESP32 + MQ-2 Gas Sensor + DS18B20 + IR Flame Sensor |
+| Telegram Bot | Telegraf.js v4 |
+| Backend | Node.js + TypeScript |
+| IoT Messaging | MQTT.js v5 + HiveMQ Cloud |
+| Build | @vercel/ncc |
+| Deployment | PM2 (VPS) |
+| Logging | debug module |
 
 ---
 
 ## 👨‍💻 Tim Pengembang
 
-Proyek ini dikembangkan oleh **Kelompok 6 (MNMKEL6)**
-untuk tugas akhir **Mikroprosesor & Mikrokontroler**.
+Dikembangkan oleh **Kelompok 6 (MNMKEL6)** untuk tugas akhir **Mikroprosesor & Mikrokontroler**.
+
+Author: [BangNopall](https://github.com/BangNopall)
 
 ---
 
 ## 📄 Lisensi
 
-Project ini digunakan untuk tujuan pembelajaran dan pengembangan sistem IoT.
+Proyek ini dibuat untuk keperluan pembelajaran dan pengembangan sistem IoT. Lihat file [LICENSE](./LICENSE) untuk detail.

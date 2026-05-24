@@ -4,6 +4,7 @@ import { getLastSensorData, client, MQTT_TOPIC_SENSOR } from '../services/mqtt';
 import {
   createRandomSensorPayload,
   formatSensorMessage,
+  shouldSendRealtimeState,
 } from '../services/sensor';
 
 const debug = createDebug('bot:realtime_command');
@@ -16,7 +17,7 @@ const parsePositiveMs = (value: string | undefined, fallback: number) => {
 const INTERVAL_MS = parsePositiveMs(process.env.REALTIME_INTERVAL_MS, 1000);
 const STALE_TIMEOUT_MS = parsePositiveMs(
   process.env.REALTIME_STALE_MS,
-  INTERVAL_MS * 2,
+  45000,
 );
 
 const realtimeIntervals = new Map<number, NodeJS.Timeout>();
@@ -85,7 +86,8 @@ export const realtimeOn = () => async (ctx: Context) => {
   } else {
     await ctx.reply(
       '✅ Realtime monitoring Diaktifkan.\n' +
-        `Interval: setiap ${INTERVAL_MS / 1000} detik.\n` +
+        `Bot hanya mengirim notifikasi realtime saat status ALERT atau BAHAYA.\n` +
+        `Interval cek: setiap ${INTERVAL_MS / 1000} detik.\n` +
         `Jika data sensor berhenti, bot akan *pause* kirim status dan otomatis lanjut lagi saat data kembali.`,
       { parse_mode: 'Markdown' },
     );
@@ -145,6 +147,15 @@ export const realtimeOn = () => async (ctx: Context) => {
       } catch (err) {
         debug('Failed to send resume message to %s: %O', chatId, err);
       }
+    }
+
+    if (!shouldSendRealtimeState(latest.state)) {
+      debug(
+        'Realtime message skipped for chat %s because state is %s',
+        chatId,
+        latest.state,
+      );
+      return;
     }
 
     const message = formatSensorMessage(

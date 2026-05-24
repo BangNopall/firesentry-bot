@@ -13,6 +13,7 @@ const bot = new Telegraf(BOT_TOKEN);
 initMqtt();
 
 bot.start(start());
+bot.command('help', start());
 bot.command('status', status());
 bot.command('realtime_on', realtimeOn());
 bot.command('realtime_off', realtimeOff());

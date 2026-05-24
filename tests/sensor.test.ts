@@ -5,6 +5,7 @@ import {
   buildSensorReasons,
   formatSensorMessage,
   parseSensorPayload,
+  shouldSendRealtimeState,
 } from '../src/services/sensor';
 
 test('parseSensorPayload accepts FIRESENTRY sensor payloads', () => {
@@ -103,4 +104,10 @@ test('formatSensorMessage renders FIRESENTRY status text', () => {
     message,
     /Pemicu: Gas melewati batas alert, Suhu melewati batas alert/,
   );
+});
+
+test('shouldSendRealtimeState only allows alert and emergency states', () => {
+  assert.equal(shouldSendRealtimeState('AMAN'), false);
+  assert.equal(shouldSendRealtimeState('ALERT'), true);
+  assert.equal(shouldSendRealtimeState('BAHAYA'), true);
 });

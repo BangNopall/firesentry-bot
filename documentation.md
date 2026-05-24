@@ -69,7 +69,7 @@ Tanggung jawab utama:
 | `src/services/mqtt.ts`     | Connect, subscribe, dan menyimpan data sensor terakhir          |
 | `src/services/sensor.ts`   | Type sensor, validasi payload, formatter pesan, dummy data test |
 | `src/commands/status.ts`   | Menampilkan data FIRESENTRY terbaru                             |
-| `src/commands/realtime.ts` | Mengirim data realtime, pause/resume stale data, mode test      |
+| `src/commands/realtime.ts` | Mengirim realtime untuk ALERT/BAHAYA, pause/resume stale data, mode test |
 
 ## 4. Environment
 
@@ -84,10 +84,10 @@ MQTT_PASSWORD="password"
 MQTT_TOPIC_SENSOR="/firesentry/data"
 
 REALTIME_INTERVAL_MS=1000
-REALTIME_STALE_MS=2000
+REALTIME_STALE_MS=45000
 ```
 
-`REALTIME_INTERVAL_MS` mengatur interval kirim pesan realtime. `REALTIME_STALE_MS` mengatur batas data dianggap berhenti.
+`REALTIME_INTERVAL_MS` mengatur interval cek pesan realtime untuk `ALERT` dan `BAHAYA`. `REALTIME_STALE_MS` mengatur batas data dianggap berhenti; gunakan nilai lebih besar dari interval publish `AMAN` ESP32.
 
 ## 5. Command Telegram
 

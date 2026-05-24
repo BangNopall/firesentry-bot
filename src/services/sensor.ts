@@ -110,6 +110,10 @@ export const getStateStatusText = (state: SensorState): string => {
   }
 };
 
+export const shouldSendRealtimeState = (state: SensorState): boolean => {
+  return state === 'ALERT' || state === 'BAHAYA';
+};
+
 export const formatSensorDate = (timestamp: number): string => {
   return new Date(timestamp).toLocaleString('id-ID', {
     timeZone: 'Asia/Jakarta',
